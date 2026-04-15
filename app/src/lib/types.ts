@@ -25,7 +25,7 @@ export interface Media {
   ai_processed: boolean;
   ai_processed_at: string | null;
   created_at: string;
-  kit?: Kit;
+  kit?: Kit | null;
 }
 
 export interface Coords {
@@ -64,4 +64,4 @@ export interface AuditEntry {
 
 export type Category = "Recon" | "Direct Action" | "Arrest";
 export type ProductionStatus = "production" | "discontinued";
-export type AnnotationStatus = "suggested" | "confirmed" | "rejected";
+export type AnnotationStatus = "suggested" | "confirmed" | "reje
