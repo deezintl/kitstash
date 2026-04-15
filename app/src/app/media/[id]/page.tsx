@@ -6,7 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { MediaCanvas } from "@/components/MediaCanvas";
 import { PersonPanel } from "@/components/PersonPanel";
-import { ArrowLeft, Tag, Users, MapPin } from "lucide-react";
+import { ArrowLeft, Tag, Users, MapPin, FileText, Save, Edit3 } from "lucide-react";
 import type { Media, Annotation, MediaPerson, Person, MediaTag, Coords } from "@/lib/types";
 
 const TAG_OPTIONS: MediaTag[] = ["Direct Action", "Recon", "Arrest"];
@@ -37,6 +37,9 @@ export default function MediaDetailPage() {
     gearName: string;
     personIndex: number;
   } | null>(null);
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesText, setNotesText] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
 
   const loadData = useCallback(async () => {
     const [mediaRes, annRes, personsRes] = await Promise.all([
@@ -53,8 +56,6 @@ export default function MediaDetailPage() {
     if (mpRes.ok) {
       const mpData = await mpRes.json();
       setMediaPersons(mpData);
-
-      // Build person dots from media_persons that have dot_x/dot_y stored
       const dots: PersonDotData[] = [];
       for (const mp of mpData) {
         if (mp.dot_x != null && mp.dot_y != null) {
@@ -73,9 +74,7 @@ export default function MediaDetailPage() {
     setLoading(false);
   }, [mediaId]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   const handleToggleTag = async (tag: MediaTag) => {
     if (!media) return;
@@ -88,9 +87,7 @@ export default function MediaDetailPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ media_id: mediaId, tags: newTags }),
     });
-    if (res.ok) {
-      setMedia({ ...media, tags: newTags });
-    }
+    if (res.ok) setMedia({ ...media, tags: newTags });
   };
 
   const handleAddPerson = async () => {
@@ -102,7 +99,6 @@ export default function MediaDetailPage() {
     });
     if (res.ok) {
       const mp = await res.json();
-      // Immediately start placing dot for this person
       setPlacingDotFor(mp.id);
       loadData();
     }
@@ -114,10 +110,7 @@ export default function MediaDetailPage() {
   };
 
   const handleAssignPerson = async (mpId: string, personId: string | null) => {
-    await supabase
-      .from("media_persons")
-      .update({ person_id: personId })
-      .eq("id", mpId);
+    await supabase.from("media_persons").update({ person_id: personId }).eq("id", mpId);
     loadData();
   };
 
@@ -136,18 +129,14 @@ export default function MediaDetailPage() {
   };
 
   const handlePlacePersonDot = async (mpId: string, x: number, y: number) => {
-    await supabase
-      .from("media_persons")
-      .update({ dot_x: x, dot_y: y })
-      .eq("id", mpId);
+    await supabase.from("media_persons").update({ dot_x: x, dot_y: y }).eq("id", mpId);
     setPlacingDotFor(null);
     loadData();
   };
 
   const handlePersonDotClick = (personIndex: number) => {
     setActivePersonIndex(activePersonIndex === personIndex ? null : personIndex);
-    // Scroll to that person panel
-    const el = document.getElementById(`person-panel-${personIndex}`);
+    const el = document.getElementById("person-panel-" + personIndex);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -156,7 +145,6 @@ export default function MediaDetailPage() {
   };
 
   const handleGearAnnotationComplete = async (gearId: string, coords: Coords) => {
-    // Create an annotation linked to this gear item
     await supabase.from("annotations").insert({
       media_id: mediaId,
       item_id: null,
@@ -166,6 +154,30 @@ export default function MediaDetailPage() {
     });
     setGearAnnotationMode(null);
     loadData();
+  };
+
+  const handleSaveNotes = async () => {
+    if (!media) return;
+    setSavingNotes(true);
+    const res = await fetch("/api/media/notes", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_id: mediaId, notes: notesText.trim() || null }),
+    });
+    if (res.ok) {
+      setMedia({ ...media, notes: notesText.trim() || null });
+      setEditingNotes(false);
+    }
+    setSavingNotes(false);
+  };
+
+  const handleNotesTxtUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    setNotesText(text);
+    setEditingNotes(true);
+    e.target.value = "";
   };
 
   if (loading) {
@@ -209,9 +221,7 @@ export default function MediaDetailPage() {
                 key={tag}
                 onClick={() => handleToggleTag(tag)}
                 className={"px-2 py-0.5 rounded text-xs font-medium border transition " +
-                  (active
-                    ? tagColors[tag]
-                    : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500")}
+                  (active ? tagColors[tag] : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500")}
               >
                 {tag}
               </button>
@@ -266,11 +276,11 @@ export default function MediaDetailPage() {
           {mediaPersons.map((mp) => (
             <div
               key={mp.id}
-              id={`person-panel-${mp.person_index}`}
+              id={"person-panel-" + mp.person_index}
               className={activePersonIndex === mp.person_index ? "ring-1 ring-blue-500/30" : ""}
             >
               <div className="flex items-center justify-end px-3 pt-1 gap-1">
-                {(!personDots.find((d) => d.media_person_id === mp.id)) && (
+                {!personDots.find((d) => d.media_person_id === mp.id) && (
                   <button
                     onClick={() => setPlacingDotFor(mp.id)}
                     className="text-[10px] text-zinc-600 hover:text-blue-400 flex items-center gap-0.5"
@@ -291,6 +301,75 @@ export default function MediaDetailPage() {
               />
             </div>
           ))}
+
+          {/* Notes section */}
+          <div className="border-t border-zinc-800">
+            <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText size={16} className="text-zinc-400" />
+                <span className="text-sm font-medium">Notes</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-0.5 text-[10px] text-zinc-500 hover:text-blue-400 cursor-pointer">
+                  <FileText size={10} />
+                  .txt
+                  <input type="file" accept=".txt" className="hidden" onChange={handleNotesTxtUpload} />
+                </label>
+                {!editingNotes ? (
+                  <button
+                    onClick={() => { setNotesText(media?.notes || ""); setEditingNotes(true); }}
+                    className="text-zinc-500 hover:text-blue-400 p-1"
+                    title="Edit notes"
+                  >
+                    <Edit3 size={12} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSaveNotes}
+                    disabled={savingNotes}
+                    className="text-blue-400 hover:text-blue-300 p-1"
+                    title="Save notes"
+                  >
+                    <Save size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="p-3">
+              {editingNotes ? (
+                <div>
+                  <textarea
+                    value={notesText}
+                    onChange={(e) => setNotesText(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 font-mono outline-none focus:border-blue-500/50 h-32 resize-y"
+                    placeholder="Enter notes about this image..."
+                    autoFocus
+                  />
+                  <div className="flex gap-2 mt-1.5">
+                    <button
+                      onClick={handleSaveNotes}
+                      disabled={savingNotes}
+                      className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded"
+                    >
+                      {savingNotes ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      onClick={() => setEditingNotes(false)}
+                      className="px-2 py-1 bg-zinc-700 text-zinc-300 text-xs rounded"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : media?.notes ? (
+                <div className="text-xs text-zinc-300 font-mono whitespace-pre-wrap">{media.notes}</div>
+              ) : (
+                <div className="text-xs text-zinc-600 font-mono">
+                  No notes yet. Click the edit button to add notes.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

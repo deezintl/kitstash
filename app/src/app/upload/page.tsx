@@ -16,6 +16,7 @@ import {
   Cpu,
   Image as ImageIcon,
   Video,
+  FileText,
 } from "lucide-react";
 import clsx from "clsx";
 import type { Kit, Category } from "@/lib/types";
@@ -27,6 +28,7 @@ interface FileEntry {
   status: UploadStatus;
   mediaId?: string;
   error?: string;
+  notes?: string;
 }
 
 const categories: Category[] = ["Recon", "Direct Action", "Arrest"];
@@ -42,6 +44,7 @@ export default function UploadPage() {
   const [newKitDesc, setNewKitDesc] = useState("");
   const [signatureOpen, setSignatureOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [globalNotes, setGlobalNotes] = useState("");
 
   useEffect(() => {
     async function loadKits() {
@@ -52,7 +55,7 @@ export default function UploadPage() {
   }, []);
 
   const onDrop = useCallback((accepted: File[]) => {
-    const entries: FileEntry[] = accepted.map((file) => ({ file, status: "idle" }));
+    const entries: FileEntry[] = accepted.map((file) => ({ file, status: "idle", notes: "" }));
     setFiles((prev) => [...prev, ...entries]);
   }, []);
 
@@ -66,6 +69,25 @@ export default function UploadPage() {
 
   const removeFile = (index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateFileNotes = (index: number, notes: string) => {
+    setFiles((prev) =>
+      prev.map((f, i) => (i === index ? { ...f, notes } : f))
+    );
+  };
+
+  const handleTxtUpload = async (index: number, txtFile: File) => {
+    const text = await txtFile.text();
+    updateFileNotes(index, text);
+  };
+
+  const handleGlobalTxtUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    setGlobalNotes(text);
+    e.target.value = "";
   };
 
   const handleCreateKit = async () => {
@@ -99,13 +121,11 @@ export default function UploadPage() {
       const entry = files[i];
       if (entry.status !== "idle") continue;
 
-      // Update status: uploading
       setFiles((prev) =>
         prev.map((f, idx) => (idx === i ? { ...f, status: "uploading" } : f))
       );
 
       try {
-        // 1. Upload to Supabase Storage
         const ext = entry.file.name.split(".").pop() || "bin";
         const path = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
@@ -118,7 +138,9 @@ export default function UploadPage() {
         const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
         const storageUrl = urlData.publicUrl;
 
-        // 2. Create media record
+        // Combine per-file notes with global notes
+        const combinedNotes = [globalNotes, entry.notes].filter(Boolean).join("\n\n").trim() || null;
+
         const isVideo = entry.file.type.startsWith("video/");
         const { data: mediaData, error: mediaErr } = await supabase
           .from("media")
@@ -126,13 +148,13 @@ export default function UploadPage() {
             kit_id: kitId,
             type: isVideo ? "video" : "image",
             storage_url: storageUrl,
+            notes: combinedNotes,
           })
           .select()
           .single();
 
         if (mediaErr || !mediaData) throw mediaErr || new Error("Failed to create media record");
 
-        // 3. Trigger AI pipeline
         setFiles((prev) =>
           prev.map((f, idx) =>
             idx === i ? { ...f, status: "processing", mediaId: mediaData.id } : f
@@ -150,7 +172,6 @@ export default function UploadPage() {
             }),
           });
         } catch {
-          // AI trigger failure is non-blocking
           console.warn("AI trigger failed, will need manual processing");
         }
 
@@ -246,6 +267,31 @@ export default function UploadPage() {
         )}
       </div>
 
+      {/* Global Notes */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-[10px] font-mono text-text-secondary uppercase tracking-wider">
+            Notes (applies to all uploaded images)
+          </label>
+          <label className="flex items-center gap-1 text-[10px] font-mono text-accent cursor-pointer hover:underline">
+            <FileText className="w-3 h-3" />
+            Upload .txt
+            <input
+              type="file"
+              accept=".txt"
+              className="hidden"
+              onChange={handleGlobalTxtUpload}
+            />
+          </label>
+        </div>
+        <textarea
+          value={globalNotes}
+          onChange={(e) => setGlobalNotes(e.target.value)}
+          placeholder="Enter notes for all images in this upload batch... (source info, context, date, location, etc.)"
+          className="w-full bg-bg border border-border px-3 py-2 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50 h-24 resize-y"
+        />
+      </div>
+
       {/* Dropzone */}
       <div
         {...getRootProps()}
@@ -272,57 +318,87 @@ export default function UploadPage() {
           <div className="text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-2">
             Files ({files.length})
           </div>
-          <div className="space-y-1">
+          <div className="space-y-2">
             {files.map((entry, idx) => (
               <div
                 key={idx}
-                className="flex items-center gap-3 px-3 py-2 bg-surface border border-border rounded-sm"
+                className="bg-surface border border-border rounded-sm overflow-hidden"
               >
-                {entry.file.type.startsWith("video/") ? (
-                  <Video className="w-4 h-4 text-text-secondary shrink-0" />
-                ) : (
-                  <ImageIcon className="w-4 h-4 text-text-secondary shrink-0" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-mono text-text-primary truncate">
-                    {entry.file.name}
+                <div className="flex items-center gap-3 px-3 py-2">
+                  {entry.file.type.startsWith("video/") ? (
+                    <Video className="w-4 h-4 text-text-secondary shrink-0" />
+                  ) : (
+                    <ImageIcon className="w-4 h-4 text-text-secondary shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-mono text-text-primary truncate">
+                      {entry.file.name}
+                    </div>
+                    <div className="text-[10px] font-mono text-text-secondary">
+                      {(entry.file.size / 1024 / 1024).toFixed(1)} MB
+                    </div>
                   </div>
-                  <div className="text-[10px] font-mono text-text-secondary">
-                    {(entry.file.size / 1024 / 1024).toFixed(1)} MB
-                  </div>
+
+                  {entry.status === "idle" && (
+                    <button onClick={() => removeFile(idx)} className="text-text-secondary hover:text-danger">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {entry.status === "uploading" && (
+                    <div className="flex items-center gap-1 text-[10px] font-mono text-accent">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Uploading...
+                    </div>
+                  )}
+                  {entry.status === "processing" && (
+                    <div className="flex items-center gap-1 text-[10px] font-mono text-warning">
+                      <Cpu className="w-3 h-3 animate-pulse" />
+                      AI Analyzing...
+                    </div>
+                  )}
+                  {entry.status === "ready" && (
+                    <a
+                      href={`/media/${entry.mediaId}`}
+                      className="flex items-center gap-1 text-[10px] font-mono text-accent hover:underline"
+                    >
+                      <CheckCircle className="w-3 h-3" />
+                      Ready
+                    </a>
+                  )}
+                  {entry.status === "error" && (
+                    <div className="flex items-center gap-1 text-[10px] font-mono text-danger">
+                      <AlertCircle className="w-3 h-3" />
+                      {entry.error || "Error"}
+                    </div>
+                  )}
                 </div>
 
-                {/* Status indicators */}
+                {/* Per-file notes */}
                 {entry.status === "idle" && (
-                  <button onClick={() => removeFile(idx)} className="text-text-secondary hover:text-danger">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {entry.status === "uploading" && (
-                  <div className="flex items-center gap-1 text-[10px] font-mono text-accent">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Uploading...
-                  </div>
-                )}
-                {entry.status === "processing" && (
-                  <div className="flex items-center gap-1 text-[10px] font-mono text-warning">
-                    <Cpu className="w-3 h-3 animate-pulse" />
-                    AI Analyzing...
-                  </div>
-                )}
-                {entry.status === "ready" && (
-                  <a
-                    href={`/media/${entry.mediaId}`}
-                    className="flex items-center gap-1 text-[10px] font-mono text-accent hover:underline"
-                  >
-                    <CheckCircle className="w-3 h-3" />
-                    Ready
-                  </a>
-                )}
-                {entry.status === "error" && (
-                  <div className="flex items-center gap-1 text-[10px] font-mono text-danger">
-                    <AlertCircle className="w-3 h-3" />
-                    {entry.error || "Error"}
+                  <div className="px-3 pb-2">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-[10px] font-mono text-text-secondary">Per-image note</span>
+                      <label className="flex items-center gap-0.5 text-[10px] font-mono text-accent/70 cursor-pointer hover:text-accent">
+                        <FileText className="w-2.5 h-2.5" />
+                        .txt
+                        <input
+                          type="file"
+                          accept=".txt"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleTxtUpload(idx, f);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <textarea
+                      value={entry.notes || ""}
+                      onChange={(e) => updateFileNotes(idx, e.target.value)}
+                      placeholder="Note for this specific image..."
+                      className="w-full bg-bg border border-border px-2 py-1 text-[11px] font-mono text-text-primary rounded-sm outline-none focus:border-accent/50 h-14 resize-y"
+                    />
                   </div>
                 )}
               </div>

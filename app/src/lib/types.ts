@@ -25,6 +25,7 @@ export interface Media {
   ai_processed: boolean;
   ai_processed_at: string | null;
   tags: string[];
+  notes: string | null;
   created_at: string;
   kit?: Kit | null;
 }
