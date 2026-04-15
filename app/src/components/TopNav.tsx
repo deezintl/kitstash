@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Crosshair, Database, Upload, Home, Users } from "lucide-react";
+import { Crosshair, Database, Upload, Home, Users, Target } from "lucide-react";
 import clsx from "clsx";
 
 const links = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/gear", label: "Gear DB", icon: Database },
+  { href: "/guns", label: "Gun DB", icon: Target },
   { href: "/persons", label: "Persons", icon: Users },
   { href: "/upload", label: "Upload", icon: Upload },
 ];
@@ -46,7 +47,7 @@ export function TopNav() {
       </div>
 
       <div className="ml-auto font-mono text-[10px] text-text-secondary tracking-wider">
-        v0.1.0
+        v0.2.0
       </div>
     </nav>
   );

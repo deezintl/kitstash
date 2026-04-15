@@ -6,10 +6,19 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { MediaCanvas } from "@/components/MediaCanvas";
 import { PersonPanel } from "@/components/PersonPanel";
-import { ArrowLeft, Tag, Users } from "lucide-react";
-import type { Media, Annotation, MediaPerson, Person, MediaTag } from "@/lib/types";
+import { ArrowLeft, Tag, Users, MapPin } from "lucide-react";
+import type { Media, Annotation, MediaPerson, Person, MediaTag, Coords } from "@/lib/types";
 
 const TAG_OPTIONS: MediaTag[] = ["Direct Action", "Recon", "Arrest"];
+
+interface PersonDotData {
+  id: string;
+  media_person_id: string;
+  person_index: number;
+  x: number;
+  y: number;
+  callsign?: string | null;
+}
 
 export default function MediaDetailPage() {
   const params = useParams();
@@ -19,7 +28,15 @@ export default function MediaDetailPage() {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [mediaPersons, setMediaPersons] = useState<MediaPerson[]>([]);
   const [allPersons, setAllPersons] = useState<Person[]>([]);
+  const [personDots, setPersonDots] = useState<PersonDotData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activePersonIndex, setActivePersonIndex] = useState<number | null>(null);
+  const [placingDotFor, setPlacingDotFor] = useState<string | null>(null);
+  const [gearAnnotationMode, setGearAnnotationMode] = useState<{
+    gearId: string;
+    gearName: string;
+    personIndex: number;
+  } | null>(null);
 
   const loadData = useCallback(async () => {
     const [mediaRes, annRes, personsRes] = await Promise.all([
@@ -34,7 +51,24 @@ export default function MediaDetailPage() {
 
     const mpRes = await fetch("/api/media-persons?media_id=" + mediaId);
     if (mpRes.ok) {
-      setMediaPersons(await mpRes.json());
+      const mpData = await mpRes.json();
+      setMediaPersons(mpData);
+
+      // Build person dots from media_persons that have dot_x/dot_y stored
+      const dots: PersonDotData[] = [];
+      for (const mp of mpData) {
+        if (mp.dot_x != null && mp.dot_y != null) {
+          dots.push({
+            id: mp.id,
+            media_person_id: mp.id,
+            person_index: mp.person_index,
+            x: mp.dot_x,
+            y: mp.dot_y,
+            callsign: mp.person?.callsign || null,
+          });
+        }
+      }
+      setPersonDots(dots);
     }
     setLoading(false);
   }, [mediaId]);
@@ -66,7 +100,12 @@ export default function MediaDetailPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ media_id: mediaId, person_index: nextIndex }),
     });
-    if (res.ok) loadData();
+    if (res.ok) {
+      const mp = await res.json();
+      // Immediately start placing dot for this person
+      setPlacingDotFor(mp.id);
+      loadData();
+    }
   };
 
   const handleRemovePerson = async (mpId: string) => {
@@ -94,6 +133,39 @@ export default function MediaDetailPage() {
       return person;
     }
     return null;
+  };
+
+  const handlePlacePersonDot = async (mpId: string, x: number, y: number) => {
+    await supabase
+      .from("media_persons")
+      .update({ dot_x: x, dot_y: y })
+      .eq("id", mpId);
+    setPlacingDotFor(null);
+    loadData();
+  };
+
+  const handlePersonDotClick = (personIndex: number) => {
+    setActivePersonIndex(activePersonIndex === personIndex ? null : personIndex);
+    // Scroll to that person panel
+    const el = document.getElementById(`person-panel-${personIndex}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleRequestAnnotation = (gearId: string, gearName: string, personIndex: number) => {
+    setGearAnnotationMode({ gearId, gearName, personIndex });
+  };
+
+  const handleGearAnnotationComplete = async (gearId: string, coords: Coords) => {
+    // Create an annotation linked to this gear item
+    await supabase.from("annotations").insert({
+      media_id: mediaId,
+      item_id: null,
+      coords,
+      status: "confirmed",
+      confidence: null,
+    });
+    setGearAnnotationMode(null);
+    loadData();
   };
 
   if (loading) {
@@ -149,7 +221,19 @@ export default function MediaDetailPage() {
       </div>
       <div className="flex h-[calc(100vh-53px)]">
         <div className="flex-1 overflow-auto p-4">
-          <MediaCanvas media={media} annotations={annotations} onAnnotationsChange={loadData} />
+          <MediaCanvas
+            media={media}
+            annotations={annotations}
+            onAnnotationsChange={loadData}
+            personDots={personDots}
+            activePersonIndex={activePersonIndex}
+            onPersonDotClick={handlePersonDotClick}
+            onPlacePersonDot={handlePlacePersonDot}
+            placingDotForPerson={placingDotFor}
+            gearAnnotationMode={gearAnnotationMode}
+            onGearAnnotationComplete={handleGearAnnotationComplete}
+            onCancelGearAnnotation={() => setGearAnnotationMode(null)}
+          />
         </div>
         <div className="w-[480px] border-l border-zinc-800 overflow-y-auto">
           <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
@@ -157,12 +241,22 @@ export default function MediaDetailPage() {
               <Users size={16} className="text-zinc-400" />
               <span className="text-sm font-medium">Persons ({mediaPersons.length})</span>
             </div>
-            <button
-              onClick={handleAddPerson}
-              className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded"
-            >
-              + Add Person
-            </button>
+            <div className="flex items-center gap-2">
+              {placingDotFor && (
+                <button
+                  onClick={() => setPlacingDotFor(null)}
+                  className="px-2 py-1 bg-zinc-700 text-zinc-300 text-xs rounded"
+                >
+                  Cancel Dot
+                </button>
+              )}
+              <button
+                onClick={handleAddPerson}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded"
+              >
+                + Add Person
+              </button>
+            </div>
           </div>
           {mediaPersons.length === 0 && (
             <div className="p-8 text-center text-zinc-600 text-sm">
@@ -170,15 +264,32 @@ export default function MediaDetailPage() {
             </div>
           )}
           {mediaPersons.map((mp) => (
-            <PersonPanel
+            <div
               key={mp.id}
-              mediaPerson={mp}
-              allPersons={allPersons}
-              onAssignPerson={handleAssignPerson}
-              onCreatePerson={handleCreatePerson}
-              onRemove={handleRemovePerson}
-              onDataChange={loadData}
-            />
+              id={`person-panel-${mp.person_index}`}
+              className={activePersonIndex === mp.person_index ? "ring-1 ring-blue-500/30" : ""}
+            >
+              <div className="flex items-center justify-end px-3 pt-1 gap-1">
+                {(!personDots.find((d) => d.media_person_id === mp.id)) && (
+                  <button
+                    onClick={() => setPlacingDotFor(mp.id)}
+                    className="text-[10px] text-zinc-600 hover:text-blue-400 flex items-center gap-0.5"
+                    title="Place dot on image"
+                  >
+                    <MapPin size={10} /> Place dot
+                  </button>
+                )}
+              </div>
+              <PersonPanel
+                mediaPerson={mp}
+                allPersons={allPersons}
+                onAssignPerson={handleAssignPerson}
+                onCreatePerson={handleCreatePerson}
+                onRemove={handleRemovePerson}
+                onDataChange={loadData}
+                onRequestAnnotation={handleRequestAnnotation}
+              />
+            </div>
           ))}
         </div>
       </div>

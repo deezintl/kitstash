@@ -9,7 +9,9 @@ import {
   Crosshair,
   Shield,
   User,
+  Tag,
 } from "lucide-react";
+import { SearchableInput } from "./SearchableInput";
 import type {
   MediaPerson,
   Person,
@@ -19,7 +21,7 @@ import type {
   GearSlot,
   WeaponSlot,
 } from "@/lib/types";
-import { GEAR_SLOT_LABELS, WEAPON_SLOT_LABELS } from "@/lib/types";
+import { GEAR_SLOT_LABELS, WEAPON_SLOT_LABELS, GEAR_SLOT_CATEGORIES } from "@/lib/types";
 
 interface PersonPanelProps {
   mediaPerson: MediaPerson;
@@ -28,6 +30,7 @@ interface PersonPanelProps {
   onCreatePerson: (callsign: string) => Promise<Person | null>;
   onRemove: (mpId: string) => void;
   onDataChange: () => void;
+  onRequestAnnotation?: (gearId: string, gearName: string, personIndex: number) => void;
 }
 
 const GEAR_SLOTS: GearSlot[] = [
@@ -37,7 +40,7 @@ const GEAR_SLOTS: GearSlot[] = [
 
 const WEAPON_SLOTS: WeaponSlot[] = [
   "muzzle_device", "handguard", "foregrip", "flashlight",
-  "laser", "optic_rail", "optic", "stock", "magazine", "suppressor",
+  "laser", "optic_rail", "optic", "stock", "magazine", "suppressor", "other",
 ];
 
 export function PersonPanel({
@@ -47,47 +50,35 @@ export function PersonPanel({
   onCreatePerson,
   onRemove,
   onDataChange,
+  onRequestAnnotation,
 }: PersonPanelProps) {
   const [expanded, setExpanded] = useState(true);
   const [weaponsExpanded, setWeaponsExpanded] = useState(true);
   const [newCallsign, setNewCallsign] = useState("");
   const [showNewPerson, setShowNewPerson] = useState(false);
 
-  // Gear add state
+  // Which slot is open for adding
   const [addingGearSlot, setAddingGearSlot] = useState<GearSlot | null>(null);
-  const [gearItemName, setGearItemName] = useState("");
-  const [gearBrand, setGearBrand] = useState("");
-
-  // Weapon add state
   const [addingWeapon, setAddingWeapon] = useState(false);
-  const [weaponName, setWeaponName] = useState("");
   const [weaponType, setWeaponType] = useState("primary");
-  const [weaponBrand, setWeaponBrand] = useState("");
-
-  // Attachment add state
   const [addingAttachmentTo, setAddingAttachmentTo] = useState<string | null>(null);
   const [attachSlot, setAttachSlot] = useState<WeaponSlot>("optic");
-  const [attachName, setAttachName] = useState("");
-  const [attachBrand, setAttachBrand] = useState("");
 
   const gear = mediaPerson.gear || [];
   const weapons = mediaPerson.weapons || [];
 
-  const handleAddGear = async () => {
-    if (!gearItemName.trim() || !addingGearSlot) return;
+  const handleAddGearFromDB = async (slot: GearSlot, itemName: string, brand: string | null) => {
     await fetch("/api/person-gear", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         media_person_id: mediaPerson.id,
-        slot: addingGearSlot,
-        item_name: gearItemName.trim(),
-        brand: gearBrand.trim() || null,
+        slot,
+        item_name: itemName,
+        brand: brand || null,
       }),
     });
     setAddingGearSlot(null);
-    setGearItemName("");
-    setGearBrand("");
     onDataChange();
   };
 
@@ -96,21 +87,18 @@ export function PersonPanel({
     onDataChange();
   };
 
-  const handleAddWeapon = async () => {
-    if (!weaponName.trim()) return;
+  const handleAddWeaponFromDB = async (weaponName: string, brand: string | null, wType: string) => {
     await fetch("/api/person-weapons", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         media_person_id: mediaPerson.id,
-        weapon_type: weaponType,
-        weapon_name: weaponName.trim(),
-        brand: weaponBrand.trim() || null,
+        weapon_type: wType,
+        weapon_name: weaponName,
+        brand: brand || null,
       }),
     });
     setAddingWeapon(false);
-    setWeaponName("");
-    setWeaponBrand("");
     onDataChange();
   };
 
@@ -119,21 +107,18 @@ export function PersonPanel({
     onDataChange();
   };
 
-  const handleAddAttachment = async (weaponId: string) => {
-    if (!attachName.trim()) return;
+  const handleAddAttachmentFromDB = async (weaponId: string, slot: WeaponSlot, name: string, brand: string | null) => {
     await fetch("/api/weapon-attachments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         person_weapon_id: weaponId,
-        slot: attachSlot,
-        attachment_name: attachName.trim(),
-        brand: attachBrand.trim() || null,
+        slot,
+        attachment_name: name,
+        brand: brand || null,
       }),
     });
     setAddingAttachmentTo(null);
-    setAttachName("");
-    setAttachBrand("");
     onDataChange();
   };
 
@@ -167,7 +152,6 @@ export function PersonPanel({
           Person #{mediaPerson.person_index}
         </span>
 
-        {/* Person ID dropdown */}
         <select
           className="ml-2 bg-zinc-800 border border-zinc-700 rounded px-2 py-0.5 text-xs text-zinc-300 flex-1"
           value={mediaPerson.person_id || ""}
@@ -233,6 +217,9 @@ export function PersonPanel({
         <div className="px-3 pb-2">
           {GEAR_SLOTS.map((slot) => {
             const items = gearBySlot[slot] || [];
+            const slotCategories = GEAR_SLOT_CATEGORIES[slot];
+            const searchUrl = `/api/items/search?categories=${encodeURIComponent(slotCategories.join(","))}`;
+
             return (
               <div key={slot} className="flex items-start gap-2 py-1 border-b border-zinc-800/50 last:border-0">
                 <span className="text-[10px] text-zinc-500 w-24 pt-0.5 flex-shrink-0 uppercase tracking-wide">
@@ -245,6 +232,15 @@ export function PersonPanel({
                       {g.brand && (
                         <span className="text-[10px] text-zinc-500">({g.brand})</span>
                       )}
+                      {onRequestAnnotation && (
+                        <button
+                          onClick={() => onRequestAnnotation(g.id, g.item_name, mediaPerson.person_index)}
+                          className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-blue-400 ml-1"
+                          title="Tag on image"
+                        >
+                          <Tag size={10} />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleRemoveGear(g.id)}
                         className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 ml-auto"
@@ -255,28 +251,24 @@ export function PersonPanel({
                   ))}
 
                   {addingGearSlot === slot ? (
-                    <div className="flex gap-1 mt-1">
-                      <input
-                        className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-xs text-zinc-200 w-28"
-                        placeholder="Item name"
-                        value={gearItemName}
-                        onChange={(e) => setGearItemName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleAddGear()}
+                    <div className="mt-1">
+                      <SearchableInput
+                        fetchUrl={searchUrl}
+                        placeholder={`Search ${GEAR_SLOT_LABELS[slot]}...`}
                         autoFocus
+                        onSelect={(item) => handleAddGearFromDB(slot, item.name, item.brand || null)}
+                        onCustomSubmit={(name) => handleAddGearFromDB(slot, name, null)}
                       />
-                      <input
-                        className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-xs text-zinc-200 w-20"
-                        placeholder="Brand"
-                        value={gearBrand}
-                        onChange={(e) => setGearBrand(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleAddGear()}
-                      />
-                      <button onClick={handleAddGear} className="text-blue-400 text-xs">Save</button>
-                      <button onClick={() => setAddingGearSlot(null)} className="text-zinc-500 text-xs">X</button>
+                      <button
+                        onClick={() => setAddingGearSlot(null)}
+                        className="text-[10px] text-zinc-500 hover:text-zinc-300 mt-0.5"
+                      >
+                        cancel
+                      </button>
                     </div>
                   ) : (
                     <button
-                      onClick={() => { setAddingGearSlot(slot); setGearItemName(""); setGearBrand(""); }}
+                      onClick={() => setAddingGearSlot(slot)}
                       className="text-[10px] text-zinc-600 hover:text-blue-400 mt-0.5"
                     >
                       + add
@@ -308,6 +300,15 @@ export function PersonPanel({
                 <span className="text-[10px] text-amber-500 uppercase">{w.weapon_type}</span>
                 <span className="text-xs text-zinc-200 font-medium">{w.weapon_name}</span>
                 {w.brand && <span className="text-[10px] text-zinc-500">({w.brand})</span>}
+                {onRequestAnnotation && (
+                  <button
+                    onClick={() => onRequestAnnotation(w.id, w.weapon_name, mediaPerson.person_index)}
+                    className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-amber-400"
+                    title="Tag on image"
+                  >
+                    <Tag size={10} />
+                  </button>
+                )}
                 <button
                   onClick={() => handleRemoveWeapon(w.id)}
                   className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 ml-auto"
@@ -333,37 +334,35 @@ export function PersonPanel({
                 ))}
 
                 {addingAttachmentTo === w.id ? (
-                  <div className="flex gap-1 mt-1 flex-wrap">
-                    <select
-                      className="bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-300"
-                      value={attachSlot}
-                      onChange={(e) => setAttachSlot(e.target.value as WeaponSlot)}
-                    >
-                      {WEAPON_SLOTS.map((s) => (
-                        <option key={s} value={s}>{WEAPON_SLOT_LABELS[s]}</option>
-                      ))}
-                    </select>
-                    <input
-                      className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-200 w-24"
-                      placeholder="Attachment"
-                      value={attachName}
-                      onChange={(e) => setAttachName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleAddAttachment(w.id)}
+                  <div className="mt-1">
+                    <div className="flex gap-1 mb-1">
+                      <select
+                        className="bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-300"
+                        value={attachSlot}
+                        onChange={(e) => setAttachSlot(e.target.value as WeaponSlot)}
+                      >
+                        {WEAPON_SLOTS.map((s) => (
+                          <option key={s} value={s}>{WEAPON_SLOT_LABELS[s]}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <SearchableInput
+                      fetchUrl={`/api/attachments/search?slot=${attachSlot}`}
+                      placeholder={`Search ${WEAPON_SLOT_LABELS[attachSlot]}...`}
                       autoFocus
+                      onSelect={(item) => handleAddAttachmentFromDB(w.id, attachSlot, item.name, item.brand || null)}
+                      onCustomSubmit={(name) => handleAddAttachmentFromDB(w.id, attachSlot, name, null)}
                     />
-                    <input
-                      className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-200 w-16"
-                      placeholder="Brand"
-                      value={attachBrand}
-                      onChange={(e) => setAttachBrand(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleAddAttachment(w.id)}
-                    />
-                    <button onClick={() => handleAddAttachment(w.id)} className="text-blue-400 text-[10px]">Save</button>
-                    <button onClick={() => setAddingAttachmentTo(null)} className="text-zinc-500 text-[10px]">X</button>
+                    <button
+                      onClick={() => setAddingAttachmentTo(null)}
+                      className="text-[10px] text-zinc-500 hover:text-zinc-300 mt-0.5"
+                    >
+                      cancel
+                    </button>
                   </div>
                 ) : (
                   <button
-                    onClick={() => { setAddingAttachmentTo(w.id); setAttachName(""); setAttachBrand(""); }}
+                    onClick={() => { setAddingAttachmentTo(w.id); }}
                     className="text-[10px] text-zinc-600 hover:text-amber-400 mt-0.5"
                   >
                     + attachment
@@ -374,33 +373,31 @@ export function PersonPanel({
           ))}
 
           {addingWeapon ? (
-            <div className="flex gap-1 mt-1 flex-wrap">
-              <select
-                className="bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-xs text-zinc-300"
-                value={weaponType}
-                onChange={(e) => setWeaponType(e.target.value)}
-              >
-                <option value="primary">Primary</option>
-                <option value="sidearm">Sidearm</option>
-                <option value="secondary">Secondary</option>
-              </select>
-              <input
-                className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-xs text-zinc-200 w-28"
-                placeholder="Weapon name"
-                value={weaponName}
-                onChange={(e) => setWeaponName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddWeapon()}
+            <div className="mt-1">
+              <div className="flex gap-1 mb-1">
+                <select
+                  className="bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-xs text-zinc-300"
+                  value={weaponType}
+                  onChange={(e) => setWeaponType(e.target.value)}
+                >
+                  <option value="primary">Primary</option>
+                  <option value="sidearm">Sidearm</option>
+                  <option value="secondary">Secondary</option>
+                </select>
+              </div>
+              <SearchableInput
+                fetchUrl="/api/weapons/search"
+                placeholder="Search weapons DB..."
                 autoFocus
+                onSelect={(item) => handleAddWeaponFromDB(item.name, item.brand || null, weaponType)}
+                onCustomSubmit={(name) => handleAddWeaponFromDB(name, null, weaponType)}
               />
-              <input
-                className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-xs text-zinc-200 w-20"
-                placeholder="Brand"
-                value={weaponBrand}
-                onChange={(e) => setWeaponBrand(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddWeapon()}
-              />
-              <button onClick={handleAddWeapon} className="text-blue-400 text-xs">Save</button>
-              <button onClick={() => setAddingWeapon(false)} className="text-zinc-500 text-xs">X</button>
+              <button
+                onClick={() => setAddingWeapon(false)}
+                className="text-[10px] text-zinc-500 hover:text-zinc-300 mt-0.5"
+              >
+                cancel
+              </button>
             </div>
           ) : (
             <button

@@ -2,17 +2,33 @@
 
 import { useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Plus, Crosshair } from "lucide-react";
+import { Plus, Crosshair, User } from "lucide-react";
 import { BoundingBox } from "./BoundingBox";
 import { ItemSearch } from "./ItemSearch";
 import { SignatureModal } from "./SignatureModal";
 import { supabase } from "@/lib/supabase";
-import type { Annotation, Media, Item, Coords } from "@/lib/types";
+import type { Annotation, Media, Item, Coords, MediaPerson } from "@/lib/types";
+
+interface PersonDot {
+  id: string;
+  person_index: number;
+  x: number;
+  y: number;
+  callsign?: string | null;
+}
 
 interface MediaCanvasProps {
   media: Media;
   annotations: Annotation[];
   onAnnotationsChange: () => void;
+  personDots?: PersonDot[];
+  activePersonIndex?: number | null;
+  onPersonDotClick?: (personIndex: number) => void;
+  onPlacePersonDot?: (personMpId: string, x: number, y: number) => void;
+  placingDotForPerson?: string | null;
+  gearAnnotationMode?: { gearId: string; gearName: string; personIndex: number } | null;
+  onGearAnnotationComplete?: (gearId: string, coords: Coords) => void;
+  onCancelGearAnnotation?: () => void;
 }
 
 type DrawState =
@@ -20,9 +36,27 @@ type DrawState =
   | { mode: "drawing"; start: { x: number; y: number }; current: { x: number; y: number } }
   | { mode: "selecting_item"; coords: Coords }
   | { mode: "confirming"; annotationId: string; action: "confirm" | "reject" }
-  | { mode: "editing"; annotationId: string };
+  | { mode: "editing"; annotationId: string }
+  | { mode: "drawing_gear"; start: { x: number; y: number }; current: { x: number; y: number } };
 
-export function MediaCanvas({ media, annotations, onAnnotationsChange }: MediaCanvasProps) {
+const PERSON_COLORS = [
+  "bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-purple-500",
+  "bg-rose-500", "bg-cyan-500", "bg-orange-500", "bg-pink-500",
+];
+
+export function MediaCanvas({
+  media,
+  annotations,
+  onAnnotationsChange,
+  personDots = [],
+  activePersonIndex,
+  onPersonDotClick,
+  onPlacePersonDot,
+  placingDotForPerson,
+  gearAnnotationMode,
+  onGearAnnotationComplete,
+  onCancelGearAnnotation,
+}: MediaCanvasProps) {
   const [drawState, setDrawState] = useState<DrawState>({ mode: "idle" });
   const [drawMode, setDrawMode] = useState(false);
   const [signatureOpen, setSignatureOpen] = useState(false);
@@ -43,24 +77,56 @@ export function MediaCanvas({ media, annotations, onAnnotationsChange }: MediaCa
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      // If placing a person dot
+      if (placingDotForPerson && onPlacePersonDot) {
+        const pos = getRelativeCoords(e);
+        onPlacePersonDot(placingDotForPerson, pos.x, pos.y);
+        return;
+      }
+      // If in gear annotation mode
+      if (gearAnnotationMode) {
+        const pos = getRelativeCoords(e);
+        setDrawState({ mode: "drawing_gear", start: pos, current: pos });
+        return;
+      }
       if (!drawMode) return;
       const pos = getRelativeCoords(e);
       setDrawState({ mode: "drawing", start: pos, current: pos });
     },
-    [drawMode, getRelativeCoords]
+    [drawMode, getRelativeCoords, placingDotForPerson, onPlacePersonDot, gearAnnotationMode]
   );
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (drawState.mode !== "drawing") return;
-      setDrawState((s) =>
-        s.mode === "drawing" ? { ...s, current: getRelativeCoords(e) } : s
-      );
+      if (drawState.mode === "drawing" || drawState.mode === "drawing_gear") {
+        setDrawState((s) =>
+          (s.mode === "drawing" || s.mode === "drawing_gear")
+            ? { ...s, current: getRelativeCoords(e) }
+            : s
+        );
+      }
     },
     [drawState.mode, getRelativeCoords]
   );
 
   const handleMouseUp = useCallback(() => {
+    if (drawState.mode === "drawing_gear" && gearAnnotationMode && onGearAnnotationComplete) {
+      const { start, current } = drawState;
+      const coords: Coords = {
+        x: Math.min(start.x, current.x),
+        y: Math.min(start.y, current.y),
+        width: Math.abs(current.x - start.x),
+        height: Math.abs(current.y - start.y),
+      };
+      if (coords.width < 1 || coords.height < 1) {
+        setDrawState({ mode: "idle" });
+        return;
+      }
+      onGearAnnotationComplete(gearAnnotationMode.gearId, coords);
+      setDrawState({ mode: "idle" });
+      return;
+    }
+
     if (drawState.mode !== "drawing") return;
     const { start, current } = drawState;
     const coords: Coords = {
@@ -75,7 +141,7 @@ export function MediaCanvas({ media, annotations, onAnnotationsChange }: MediaCa
     }
     setDrawState({ mode: "selecting_item", coords });
     setDrawMode(false);
-  }, [drawState]);
+  }, [drawState, gearAnnotationMode, onGearAnnotationComplete]);
 
   const requestSignature = useCallback((action: () => void) => {
     setPendingAction(() => action);
@@ -158,7 +224,7 @@ export function MediaCanvas({ media, annotations, onAnnotationsChange }: MediaCa
 
   // Drawing preview rect
   const drawRect =
-    drawState.mode === "drawing"
+    (drawState.mode === "drawing" || drawState.mode === "drawing_gear")
       ? {
           x: Math.min(drawState.start.x, drawState.current.x),
           y: Math.min(drawState.start.y, drawState.current.y),
@@ -167,10 +233,12 @@ export function MediaCanvas({ media, annotations, onAnnotationsChange }: MediaCa
         }
       : null;
 
+  const isInteractive = drawMode || !!placingDotForPerson || !!gearAnnotationMode;
+
   return (
     <div className="flex-1 flex flex-col">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-surface">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-surface flex-wrap">
         <button
           onClick={() => {
             setDrawMode(!drawMode);
@@ -193,6 +261,30 @@ export function MediaCanvas({ media, annotations, onAnnotationsChange }: MediaCa
           </span>
         )}
 
+        {placingDotForPerson && (
+          <span className="flex items-center gap-1 text-[10px] font-mono text-blue-400">
+            <User className="w-3 h-3" />
+            Click on the image to place person dot
+          </span>
+        )}
+
+        {gearAnnotationMode && (
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1 text-[10px] font-mono text-amber-400">
+              <Crosshair className="w-3 h-3" />
+              Draw box around: {gearAnnotationMode.gearName}
+            </span>
+            {onCancelGearAnnotation && (
+              <button
+                onClick={onCancelGearAnnotation}
+                className="text-[10px] text-zinc-500 hover:text-zinc-300"
+              >
+                cancel
+              </button>
+            )}
+          </div>
+        )}
+
         {(drawState.mode === "selecting_item" || drawState.mode === "editing") && (
           <div className="w-64">
             <ItemSearch
@@ -208,7 +300,7 @@ export function MediaCanvas({ media, annotations, onAnnotationsChange }: MediaCa
         <div
           ref={containerRef}
           className={`relative max-w-full max-h-full ${
-            drawMode ? "cursor-crosshair" : ""
+            isInteractive ? "cursor-crosshair" : ""
           }`}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
@@ -241,10 +333,38 @@ export function MediaCanvas({ media, annotations, onAnnotationsChange }: MediaCa
             />
           ))}
 
+          {/* Person dots */}
+          {personDots.map((dot) => {
+            const colorClass = PERSON_COLORS[(dot.person_index - 1) % PERSON_COLORS.length];
+            const isActive = activePersonIndex === dot.person_index;
+            return (
+              <button
+                key={dot.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPersonDotClick?.(dot.person_index);
+                }}
+                className={`absolute transform -translate-x-1/2 -translate-y-1/2 rounded-full flex items-center justify-center text-white text-[9px] font-bold shadow-lg border-2 transition-all ${colorClass} ${
+                  isActive
+                    ? "w-7 h-7 border-white ring-2 ring-white/30 z-20"
+                    : "w-5 h-5 border-black/50 z-10 hover:scale-125"
+                }`}
+                style={{ left: `${dot.x}%`, top: `${dot.y}%` }}
+                title={dot.callsign || `Person #${dot.person_index}`}
+              >
+                {dot.person_index}
+              </button>
+            );
+          })}
+
           {/* Drawing preview */}
           {drawRect && (
             <motion.div
-              className="absolute border-2 border-dashed border-accent bg-accent/10 pointer-events-none"
+              className={`absolute border-2 border-dashed pointer-events-none ${
+                drawState.mode === "drawing_gear"
+                  ? "border-amber-400 bg-amber-400/10"
+                  : "border-accent bg-accent/10"
+              }`}
               style={{
                 left: `${drawRect.x}%`,
                 top: `${drawRect.y}%`,

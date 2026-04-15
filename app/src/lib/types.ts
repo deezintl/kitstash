@@ -2,7 +2,7 @@ export interface Item {
   id: string;
   name: string;
   brand: string | null;
-  category: "Recon" | "Direct Action" | "Arrest" | null;
+  category: string | null;
   status: "production" | "discontinued";
   purchase_url: string | null;
   created_at: string;
@@ -11,7 +11,7 @@ export interface Item {
 export interface Kit {
   id: string;
   name: string;
-  category: "Recon" | "Direct Action" | "Arrest" | null;
+  category: string | null;
   description: string | null;
   created_at: string;
 }
@@ -98,6 +98,20 @@ export const GEAR_SLOT_LABELS: Record<GearSlot, string> = {
   accessories: "Accessories",
 };
 
+export const GEAR_SLOT_CATEGORIES: Record<GearSlot, string[]> = {
+  helmet: ["Helmets"],
+  headwear: ["Headwear"],
+  eyepro: ["Eye Protection"],
+  top: ["Uniforms"],
+  pants: ["Uniforms"],
+  lbe: ["Armor / LBE"],
+  belt: ["Belts"],
+  boots: ["Boots"],
+  gloves: ["Accessories"],
+  comms: ["Comms / Ear Pro"],
+  accessories: ["Accessories"],
+};
+
 export interface PersonGear {
   id: string;
   media_person_id: string;
@@ -158,6 +172,28 @@ export interface WeaponAttachment {
   created_at: string;
 }
 
+export interface Weapon {
+  id: string;
+  name: string;
+  weapon_type: string;
+  caliber: string | null;
+  brand: string | null;
+  notes: string | null;
+  image_url: string | null;
+  created_at: string;
+}
+
+export interface AttachmentCatalog {
+  id: string;
+  name: string;
+  slot: WeaponSlot;
+  brand: string | null;
+  compatible_weapons: string[];
+  purchase_url: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
 export interface AuditEntry {
   id: string;
   table_name: string;
@@ -169,7 +205,19 @@ export interface AuditEntry {
   created_at: string;
 }
 
-export type Category = "Recon" | "Direct Action" | "Arrest";
+export type Category = string;
 export type ProductionStatus = "production" | "discontinued";
 export type AnnotationStatus = "suggested" | "confirmed" | "rejected";
 export type MediaTag = "Direct Action" | "Recon" | "Arrest";
+
+export const GEAR_CATEGORIES = [
+  "Helmets",
+  "Headwear",
+  "Eye Protection",
+  "Uniforms",
+  "Armor / LBE",
+  "Belts",
+  "Boots",
+  "Comms / Ear Pro",
+  "Accessories",
+] as const;

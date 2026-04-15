@@ -14,11 +14,14 @@ import {
   ExternalLink,
   X,
   Image as ImageIcon,
+  Edit3,
+  Trash2,
+  Save,
 } from "lucide-react";
 import clsx from "clsx";
 import type { Item, Category, ProductionStatus, Media } from "@/lib/types";
+import { GEAR_CATEGORIES } from "@/lib/types";
 
-const categories: Category[] = ["Recon", "Direct Action", "Arrest"];
 const statuses: ProductionStatus[] = ["production", "discontinued"];
 
 export default function GearPage() {
@@ -42,6 +45,10 @@ export default function GearPage() {
   });
   const [signatureOpen, setSignatureOpen] = useState(false);
 
+  // Edit state
+  const [editing, setEditing] = useState(false);
+  const [editData, setEditData] = useState<Partial<Item>>({});
+
   const loadItems = useCallback(async () => {
     setLoading(true);
     let query = supabase.from("items").select("*").order("name");
@@ -59,7 +66,6 @@ export default function GearPage() {
     loadItems();
   }, [loadItems]);
 
-  // Load media for selected item
   useEffect(() => {
     if (!selectedItem) {
       setItemMedia([]);
@@ -106,12 +112,42 @@ export default function GearPage() {
     [newItem, loadItems]
   );
 
+  const handleSaveEdit = async () => {
+    if (!selectedItem) return;
+    const { data, error } = await supabase
+      .from("items")
+      .update({
+        name: editData.name,
+        brand: editData.brand || null,
+        category: editData.category || null,
+        status: editData.status,
+        purchase_url: editData.purchase_url || null,
+      })
+      .eq("id", selectedItem.id)
+      .select()
+      .single();
+    if (!error && data) {
+      setSelectedItem(data as unknown as Item);
+      setEditing(false);
+      loadItems();
+    }
+  };
+
+  const handleDeleteItem = async () => {
+    if (!selectedItem) return;
+    if (!confirm("Delete this gear item?")) return;
+    const { error } = await supabase.from("items").delete().eq("id", selectedItem.id);
+    if (!error) {
+      setSelectedItem(null);
+      loadItems();
+    }
+  };
+
   return (
     <div className="flex-1 flex overflow-hidden">
-      {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Toolbar */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-surface">
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-surface flex-wrap">
           <div className="flex items-center bg-bg border border-border rounded-sm flex-1 max-w-sm">
             <Search className="w-3.5 h-3.5 text-text-secondary ml-2.5" />
             <input
@@ -123,10 +159,9 @@ export default function GearPage() {
             />
           </div>
 
-          {/* Filters */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap">
             <Filter className="w-3 h-3 text-text-secondary mr-1" />
-            {categories.map((cat) => (
+            {GEAR_CATEGORIES.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setFilterCategory(filterCategory === cat ? null : cat)}
@@ -158,7 +193,6 @@ export default function GearPage() {
             ))}
           </div>
 
-          {/* View toggle */}
           <div className="flex items-center gap-0.5 ml-auto">
             <button
               onClick={() => setViewMode("grid")}
@@ -192,15 +226,13 @@ export default function GearPage() {
         {/* Items */}
         <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
-            <div className="text-center py-8 text-xs font-mono text-text-secondary animate-pulse">
-              Loading...
-            </div>
+            <div className="text-center py-8 text-xs font-mono text-text-secondary animate-pulse">Loading...</div>
           ) : viewMode === "grid" ? (
             <div className="grid grid-cols-3 xl:grid-cols-4 gap-3">
               {items.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => setSelectedItem(selectedItem?.id === item.id ? null : item)}
+                  onClick={() => { setSelectedItem(selectedItem?.id === item.id ? null : item); setEditing(false); }}
                   className={clsx(
                     "text-left bg-surface border rounded-sm p-3 transition-colors",
                     selectedItem?.id === item.id
@@ -212,13 +244,9 @@ export default function GearPage() {
                     <StatusDot status={item.status} />
                     {item.category && <CategoryBadge category={item.category} />}
                   </div>
-                  <div className="text-sm font-mono font-medium text-text-primary mb-0.5">
-                    {item.name}
-                  </div>
+                  <div className="text-sm font-mono font-medium text-text-primary mb-0.5">{item.name}</div>
                   {item.brand && (
-                    <div className="text-[11px] font-mono text-text-secondary">
-                      {item.brand}
-                    </div>
+                    <div className="text-[11px] font-mono text-text-secondary">{item.brand}</div>
                   )}
                   {item.purchase_url && (
                     <a
@@ -249,36 +277,22 @@ export default function GearPage() {
                 {items.map((item) => (
                   <tr
                     key={item.id}
-                    onClick={() => setSelectedItem(selectedItem?.id === item.id ? null : item)}
+                    onClick={() => { setSelectedItem(selectedItem?.id === item.id ? null : item); setEditing(false); }}
                     className={clsx(
                       "border-b border-border/30 cursor-pointer transition-colors",
-                      selectedItem?.id === item.id
-                        ? "bg-accent/5"
-                        : "hover:bg-white/5"
+                      selectedItem?.id === item.id ? "bg-accent/5" : "hover:bg-white/5"
                     )}
                   >
-                    <td className="py-2 pr-3">
-                      <StatusDot status={item.status} />
-                    </td>
+                    <td className="py-2 pr-3"><StatusDot status={item.status} /></td>
                     <td className="py-2 pr-3 text-text-primary">{item.name}</td>
                     <td className="py-2 pr-3 text-text-secondary">{item.brand || "—"}</td>
-                    <td className="py-2 pr-3">
-                      {item.category ? <CategoryBadge category={item.category} /> : "—"}
-                    </td>
+                    <td className="py-2 pr-3">{item.category ? <CategoryBadge category={item.category} /> : "—"}</td>
                     <td className="py-2">
                       {item.purchase_url ? (
-                        <a
-                          href={item.purchase_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-accent hover:underline"
-                        >
+                        <a href={item.purchase_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-accent hover:underline">
                           <ExternalLink className="w-3 h-3" />
                         </a>
-                      ) : (
-                        "—"
-                      )}
+                      ) : "—"}
                     </td>
                   </tr>
                 ))}
@@ -288,193 +302,180 @@ export default function GearPage() {
         </div>
       </div>
 
-      {/* Detail panel */}
+      {/* Detail panel with editing */}
       {selectedItem && (
-        <aside className="w-72 border-l border-border bg-surface flex flex-col shrink-0">
+        <aside className="w-72 border-l border-border bg-surface flex flex-col shrink-0 overflow-y-auto">
           <div className="px-3 py-2.5 border-b border-border flex items-center justify-between">
             <span className="text-[10px] font-mono font-semibold uppercase tracking-widest text-text-secondary">
               Item Detail
             </span>
-            <button onClick={() => setSelectedItem(null)} className="text-text-secondary hover:text-text-primary">
-              <X className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-1">
+              {!editing && (
+                <button
+                  onClick={() => {
+                    setEditing(true);
+                    setEditData({
+                      name: selectedItem.name,
+                      brand: selectedItem.brand || "",
+                      category: selectedItem.category || "",
+                      status: selectedItem.status,
+                      purchase_url: selectedItem.purchase_url || "",
+                    });
+                  }}
+                  className="text-text-secondary hover:text-text-primary p-1"
+                  title="Edit"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <button onClick={() => { setSelectedItem(null); setEditing(false); }} className="text-text-secondary hover:text-text-primary p-1">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
           <div className="px-3 py-3">
-            <div className="flex items-center gap-2 mb-1">
-              <StatusDot status={selectedItem.status} />
-              <span className="text-xs text-text-secondary capitalize">{selectedItem.status}</span>
-            </div>
-            <div className="text-sm font-mono font-medium text-text-primary mb-0.5">
-              {selectedItem.name}
-            </div>
-            {selectedItem.brand && (
-              <div className="text-xs font-mono text-text-secondary mb-2">
-                {selectedItem.brand}
+            {editing ? (
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-0.5">Name</label>
+                  <input className="w-full bg-bg border border-border px-2 py-1 text-xs font-mono text-text-primary rounded-sm" value={editData.name || ""} onChange={(e) => setEditData({ ...editData, name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-0.5">Brand</label>
+                  <input className="w-full bg-bg border border-border px-2 py-1 text-xs font-mono text-text-primary rounded-sm" value={editData.brand || ""} onChange={(e) => setEditData({ ...editData, brand: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-0.5">Category</label>
+                  <select className="w-full bg-bg border border-border px-2 py-1 text-xs font-mono text-text-primary rounded-sm" value={editData.category || ""} onChange={(e) => setEditData({ ...editData, category: e.target.value })}>
+                    <option value="">None</option>
+                    {GEAR_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-0.5">Status</label>
+                  <select className="w-full bg-bg border border-border px-2 py-1 text-xs font-mono text-text-primary rounded-sm" value={editData.status || "production"} onChange={(e) => setEditData({ ...editData, status: e.target.value as ProductionStatus })}>
+                    <option value="production">In Production</option>
+                    <option value="discontinued">Discontinued</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-0.5">Purchase URL</label>
+                  <input type="url" className="w-full bg-bg border border-border px-2 py-1 text-xs font-mono text-text-primary rounded-sm" value={editData.purchase_url || ""} onChange={(e) => setEditData({ ...editData, purchase_url: e.target.value })} />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button onClick={handleSaveEdit} className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-accent text-bg text-xs rounded-sm hover:bg-accent/90">
+                    <Save className="w-3 h-3" /> Save
+                  </button>
+                  <button onClick={() => setEditing(false)} className="px-2 py-1 text-xs text-text-secondary border border-border rounded-sm hover:bg-white/5">Cancel</button>
+                </div>
+                <button onClick={handleDeleteItem} className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-300 pt-1">
+                  <Trash2 className="w-3 h-3" /> Delete item
+                </button>
               </div>
-            )}
-            {selectedItem.category && (
-              <div className="mb-3">
-                <CategoryBadge category={selectedItem.category} />
-              </div>
-            )}
-            {selectedItem.purchase_url && (
-              <a
-                href={selectedItem.purchase_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-accent hover:underline mb-3"
-              >
-                Purchase Link <ExternalLink className="w-3 h-3" />
-              </a>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 mb-1">
+                  <StatusDot status={selectedItem.status} />
+                  <span className="text-xs text-text-secondary capitalize">{selectedItem.status}</span>
+                </div>
+                <div className="text-sm font-mono font-medium text-text-primary mb-0.5">{selectedItem.name}</div>
+                {selectedItem.brand && (
+                  <div className="text-xs font-mono text-text-secondary mb-2">{selectedItem.brand}</div>
+                )}
+                {selectedItem.category && (
+                  <div className="mb-3"><CategoryBadge category={selectedItem.category} /></div>
+                )}
+                {selectedItem.purchase_url && (
+                  <a href={selectedItem.purchase_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-accent hover:underline mb-3">
+                    Purchase Link <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </>
             )}
           </div>
 
           {/* Media appearances */}
-          <div className="px-3 py-2 border-t border-border">
-            <div className="text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-2">
-              Appears In ({itemMedia.length})
+          {!editing && (
+            <div className="px-3 py-2 border-t border-border">
+              <div className="text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-2">
+                Appears In ({itemMedia.length})
+              </div>
+              {itemMedia.length === 0 ? (
+                <div className="text-[10px] font-mono text-text-secondary/50">No media tagged with this item</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {itemMedia.map((m) => (
+                    <a
+                      key={m.id}
+                      href={`/media/${m.id}`}
+                      className="aspect-video bg-bg border border-border rounded-sm overflow-hidden hover:border-accent/30 transition-colors"
+                    >
+                      {m.thumbnail_url || m.type === "image" ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={m.thumbnail_url || m.storage_url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <ImageIcon className="w-4 h-4 text-text-secondary/30" />
+                        </div>
+                      )}
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
-            {itemMedia.length === 0 ? (
-              <div className="text-[10px] font-mono text-text-secondary/50">
-                No media tagged with this item
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-1.5">
-                {itemMedia.map((m) => (
-                  <a
-                    key={m.id}
-                    href={`/media/${m.id}`}
-                    className="aspect-video bg-bg border border-border rounded-sm overflow-hidden hover:border-accent/30 transition-colors"
-                  >
-                    {m.thumbnail_url || m.type === "image" ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={m.thumbnail_url || m.storage_url}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <ImageIcon className="w-4 h-4 text-text-secondary/30" />
-                      </div>
-                    )}
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
+          )}
         </aside>
       )}
 
       {/* Add Item Modal */}
       {showAdd && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => setShowAdd(false)}
-        >
-          <div
-            className="bg-surface border border-border p-5 w-96 rounded-sm"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowAdd(false)}>
+          <div className="bg-surface border border-border p-5 w-96 rounded-sm" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <span className="text-sm font-medium">Add New Gear Item</span>
-              <button onClick={() => setShowAdd(false)} className="text-text-secondary hover:text-text-primary">
-                <X className="w-4 h-4" />
-              </button>
+              <button onClick={() => setShowAdd(false)} className="text-text-secondary hover:text-text-primary"><X className="w-4 h-4" /></button>
             </div>
-
             <div className="space-y-3">
               <div>
-                <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">
-                  Name *
-                </label>
-                <input
-                  type="text"
-                  value={newItem.name}
-                  onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                  className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50"
-                  placeholder="e.g., JPC 2.0"
-                />
+                <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">Name *</label>
+                <input type="text" value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50" placeholder="e.g., JPC 2.0" />
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">
-                  Brand
-                </label>
-                <input
-                  type="text"
-                  value={newItem.brand}
-                  onChange={(e) => setNewItem({ ...newItem, brand: e.target.value })}
-                  className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50"
-                  placeholder="e.g., Crye Precision"
-                />
+                <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">Brand</label>
+                <input type="text" value={newItem.brand} onChange={(e) => setNewItem({ ...newItem, brand: e.target.value })} className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50" placeholder="e.g., Crye Precision" />
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">
-                  Category
-                </label>
-                <select
-                  value={newItem.category}
-                  onChange={(e) => setNewItem({ ...newItem, category: e.target.value as Category })}
-                  className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50"
-                >
+                <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">Category</label>
+                <select value={newItem.category} onChange={(e) => setNewItem({ ...newItem, category: e.target.value as Category })} className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50">
                   <option value="">None</option>
-                  {categories.map((c) => (
+                  {GEAR_CATEGORIES.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">
-                  Status
-                </label>
-                <select
-                  value={newItem.status}
-                  onChange={(e) => setNewItem({ ...newItem, status: e.target.value as ProductionStatus })}
-                  className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50"
-                >
+                <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">Status</label>
+                <select value={newItem.status} onChange={(e) => setNewItem({ ...newItem, status: e.target.value as ProductionStatus })} className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50">
                   <option value="production">In Production</option>
                   <option value="discontinued">Discontinued</option>
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">
-                  Purchase URL
-                </label>
-                <input
-                  type="url"
-                  value={newItem.purchase_url}
-                  onChange={(e) => setNewItem({ ...newItem, purchase_url: e.target.value })}
-                  className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50"
-                  placeholder="https://..."
-                />
+                <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1">Purchase URL</label>
+                <input type="url" value={newItem.purchase_url} onChange={(e) => setNewItem({ ...newItem, purchase_url: e.target.value })} className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50" placeholder="https://..." />
               </div>
             </div>
-
             <div className="flex gap-2 mt-5">
-              <button
-                onClick={() => setShowAdd(false)}
-                className="flex-1 px-3 py-1.5 text-xs font-medium text-text-secondary border border-border rounded-sm hover:bg-white/5"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => setSignatureOpen(true)}
-                disabled={!newItem.name.trim()}
-                className="flex-1 px-3 py-1.5 text-xs font-medium bg-accent text-bg rounded-sm hover:bg-accent/90 disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                Add Item
-              </button>
+              <button onClick={() => setShowAdd(false)} className="flex-1 px-3 py-1.5 text-xs font-medium text-text-secondary border border-border rounded-sm hover:bg-white/5">Cancel</button>
+              <button onClick={() => setSignatureOpen(true)} disabled={!newItem.name.trim()} className="flex-1 px-3 py-1.5 text-xs font-medium bg-accent text-bg rounded-sm hover:bg-accent/90 disabled:opacity-30 disabled:cursor-not-allowed">Add Item</button>
             </div>
           </div>
         </div>
       )}
 
-      <SignatureModal
-        open={signatureOpen}
-        onConfirm={handleAddItem}
-        onCancel={() => setSignatureOpen(false)}
-        actionLabel="Sign & Add"
-      />
+      <SignatureModal open={signatureOpen} onConfirm={handleAddItem} onCancel={() => setSignatureOpen(false)} actionLabel="Sign & Add" />
     </div>
   );
 }

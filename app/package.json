@@ -17,15 +17,14 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-dropzone": "^14.2.3",
-    "clsx": "^2.1.0"
+    "clsx": "^2.1.0",
+    "pg": "^8.11.3"
   },
   "devDependencies": {
+    "@types/pg": "^8.10.9",
     "@types/node": "^20.11.10",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "autoprefixer": "^10.4.17",
     "postcss": "^8.4.33",
-    "tailwindcss": "^3.4.1",
-    "typescript": "^5.3.3"
-  }
-}
+    "tailwind
