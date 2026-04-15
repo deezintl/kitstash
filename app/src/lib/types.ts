@@ -64,4 +64,4 @@ export interface AuditEntry {
 
 export type Category = "Recon" | "Direct Action" | "Arrest";
 export type ProductionStatus = "production" | "discontinued";
-export type AnnotationStatus = "suggested" | "confirmed" | "reje
+export type AnnotationStatus = "suggested" | "confirmed" | "rejected";
