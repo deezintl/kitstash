@@ -156,7 +156,7 @@ export default function MediaDetailPage() {
       <div className="flex h-[calc(100vh-53px)]">
         {/* Left: Image with bounding boxes */}
         <div className="flex-1 overflow-auto p-4">
-          <MediaCanvas media={media} annotations={annotations} />
+          <MediaCanvas media={media} annotations={annotations} onAnnotationsChange={loadData} />
         </div>
 
         {/* Right: Person hierarchy sidebar */}
@@ -194,7 +194,3 @@ export default function MediaDetailPage() {
             />
           ))}
         </div>
-      </div>
-    </div>
-  );
-}
