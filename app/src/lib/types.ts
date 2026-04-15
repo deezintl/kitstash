@@ -24,6 +24,7 @@ export interface Media {
   thumbnail_url: string | null;
   ai_processed: boolean;
   ai_processed_at: string | null;
+  tags: string[];
   created_at: string;
   kit?: Kit | null;
 }
@@ -51,6 +52,112 @@ export interface Annotation {
   item?: Item;
 }
 
+export interface Person {
+  id: string;
+  callsign: string;
+  real_name: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface MediaPerson {
+  id: string;
+  media_id: string;
+  person_id: string | null;
+  person_index: number;
+  created_at: string;
+  person?: Person | null;
+  gear?: PersonGear[];
+  weapons?: PersonWeapon[];
+}
+
+export type GearSlot =
+  | "helmet"
+  | "headwear"
+  | "eyepro"
+  | "top"
+  | "pants"
+  | "lbe"
+  | "belt"
+  | "boots"
+  | "gloves"
+  | "comms"
+  | "accessories";
+
+export const GEAR_SLOT_LABELS: Record<GearSlot, string> = {
+  helmet: "Helmet",
+  headwear: "Headwear",
+  eyepro: "Eye Protection",
+  top: "Top",
+  pants: "Pants",
+  lbe: "LBE (Armor/Chest Rig)",
+  belt: "Belt",
+  boots: "Boots",
+  gloves: "Gloves",
+  comms: "Comms/Ear Pro",
+  accessories: "Accessories",
+};
+
+export interface PersonGear {
+  id: string;
+  media_person_id: string;
+  slot: GearSlot;
+  item_name: string;
+  brand: string | null;
+  annotation_id: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export type WeaponSlot =
+  | "muzzle_device"
+  | "handguard"
+  | "foregrip"
+  | "flashlight"
+  | "laser"
+  | "optic_rail"
+  | "optic"
+  | "stock"
+  | "magazine"
+  | "suppressor"
+  | "other";
+
+export const WEAPON_SLOT_LABELS: Record<WeaponSlot, string> = {
+  muzzle_device: "Muzzle Device",
+  handguard: "Handguard",
+  foregrip: "Foregrip",
+  flashlight: "Flashlight",
+  laser: "Laser/IR",
+  optic_rail: "Optic Rail",
+  optic: "Optic",
+  stock: "Stock",
+  magazine: "Magazine",
+  suppressor: "Suppressor",
+  other: "Other",
+};
+
+export interface PersonWeapon {
+  id: string;
+  media_person_id: string;
+  weapon_type: string;
+  weapon_name: string;
+  brand: string | null;
+  annotation_id: string | null;
+  notes: string | null;
+  created_at: string;
+  attachments?: WeaponAttachment[];
+}
+
+export interface WeaponAttachment {
+  id: string;
+  person_weapon_id: string;
+  slot: WeaponSlot;
+  attachment_name: string;
+  brand: string | null;
+  annotation_id: string | null;
+  created_at: string;
+}
+
 export interface AuditEntry {
   id: string;
   table_name: string;
@@ -65,3 +172,4 @@ export interface AuditEntry {
 export type Category = "Recon" | "Direct Action" | "Arrest";
 export type ProductionStatus = "production" | "discontinued";
 export type AnnotationStatus = "suggested" | "confirmed" | "rejected";
+export type MediaTag = "Direct Action" | "Recon" | "Arrest";

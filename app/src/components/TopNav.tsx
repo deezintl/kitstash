@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Crosshair, Database, Upload, Home } from "lucide-react";
+import { Crosshair, Database, Upload, Home, Users } from "lucide-react";
 import clsx from "clsx";
 
 const links = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/gear", label: "Gear DB", icon: Database },
+  { href: "/persons", label: "Persons", icon: Users },
   { href: "/upload", label: "Upload", icon: Upload },
 ];
 
