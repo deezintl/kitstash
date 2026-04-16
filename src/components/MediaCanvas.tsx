@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { motion } from "framer-motion";
+
 import { Plus, Crosshair, User, Eye, EyeOff, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import { BoundingBox } from "./BoundingBox";
 import { ItemSearch } from "./ItemSearch";
@@ -397,7 +397,7 @@ export function MediaCanvas({
 
           {/* Drawing preview */}
           {drawRect && (
-            <motion.div
+            <div
               className={`absolute border-2 border-dashed pointer-events-none ${
                 drawState.mode === "drawing_gear" ? "border-amber-400 bg-amber-400/10" : "border-accent bg-accent/10"
               }`}
