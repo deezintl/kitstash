@@ -235,8 +235,8 @@ export function PersonPanel({
                       {onRequestAnnotation && (
                         <button
                           onClick={() => onRequestAnnotation(g.id, g.item_name, mediaPerson.person_index)}
-                          className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-blue-400 ml-1"
-                          title="Tag on image"
+                          className="text-blue-500/50 hover:text-blue-400 ml-1"
+                          title="Draw bounding box on image"
                         >
                           <Tag size={10} />
                         </button>
@@ -303,8 +303,8 @@ export function PersonPanel({
                 {onRequestAnnotation && (
                   <button
                     onClick={() => onRequestAnnotation(w.id, w.weapon_name, mediaPerson.person_index)}
-                    className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-amber-400"
-                    title="Tag on image"
+                    className="text-amber-500/50 hover:text-amber-400"
+                    title="Draw bounding box on image"
                   >
                     <Tag size={10} />
                   </button>

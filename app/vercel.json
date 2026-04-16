@@ -1,0 +1,6 @@
+{
+  "buildCommand": "npx next build",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "nodeVersion": "20"
+}

@@ -13,7 +13,7 @@ interface GearSidebarProps {
   selectedItemId?: string | null;
 }
 
-const categories: Category[] = ["Recon", "Direct Action", "Arrest"];
+const categories: Category[] = ["Recon", "Direct Action", "Arrest", "Comp/Exercise"];
 const statuses: ProductionStatus[] = ["production", "discontinued"];
 
 export function GearSidebar({ onItemSelect, selectedItemId }: GearSidebarProps) {

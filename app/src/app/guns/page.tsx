@@ -7,7 +7,6 @@ import {
   Plus,
   Grid3X3,
   List,
-  ExternalLink,
   X,
   Crosshair,
   ChevronRight,
@@ -16,7 +15,14 @@ import {
   Save,
 } from "lucide-react";
 import clsx from "clsx";
-import type { Weapon, AttachmentCatalog, WeaponSlot } from "@/lib/types";
+import type { Weapon, WeaponSlot } from "@/lib/types";
+
+interface ObservedAttachment {
+  slot: WeaponSlot;
+  attachment_name: string;
+  brand: string | null;
+  count: number;
+}
 import { WEAPON_SLOT_LABELS } from "@/lib/types";
 
 const WEAPON_TYPES = ["rifle", "carbine", "dmr", "sniper", "lmg", "smg", "pistol", "shotgun", "launcher"];
@@ -27,7 +33,7 @@ export default function GunsPage() {
   const [filterType, setFilterType] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
   const [selectedWeapon, setSelectedWeapon] = useState<Weapon | null>(null);
-  const [attachments, setAttachments] = useState<AttachmentCatalog[]>([]);
+  const [attachments, setAttachments] = useState<ObservedAttachment[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Add weapon state
@@ -58,21 +64,23 @@ export default function GunsPage() {
     loadWeapons();
   }, [loadWeapons]);
 
-  // Load attachments for selected weapon
+  // Load attachments that have been OBSERVED on this weapon in media posts
   useEffect(() => {
     if (!selectedWeapon) {
       setAttachments([]);
       return;
     }
-    async function loadAttachments() {
-      const res = await fetch("/api/attachments");
+    async function loadObserved() {
+      const res = await fetch(
+        "/api/weapons/observed-attachments?weapon_name=" +
+          encodeURIComponent(selectedWeapon!.name)
+      );
       if (res.ok) {
-        const all: AttachmentCatalog[] = await res.json();
-        // Show all attachments but highlight compatible ones
-        setAttachments(all);
+        const data: ObservedAttachment[] = await res.json();
+        setAttachments(data);
       }
     }
-    loadAttachments();
+    loadObserved();
   }, [selectedWeapon]);
 
   const handleAddWeapon = async () => {
@@ -114,8 +122,8 @@ export default function GunsPage() {
     }
   };
 
-  // Group attachments by slot
-  const attachmentsBySlot: Partial<Record<WeaponSlot, AttachmentCatalog[]>> = {};
+  // Group observed attachments by slot
+  const attachmentsBySlot: Partial<Record<WeaponSlot, ObservedAttachment[]>> = {};
   for (const a of attachments) {
     if (!attachmentsBySlot[a.slot]) attachmentsBySlot[a.slot] = [];
     attachmentsBySlot[a.slot]!.push(a);
@@ -371,7 +379,7 @@ export default function GunsPage() {
           {/* Attachments catalog */}
           <div className="px-3 py-2 border-t border-border">
             <div className="text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-2">
-              Attachment Catalog ({attachments.length})
+              Observed Attachments ({attachments.length})
             </div>
             {Object.entries(attachmentsBySlot).map(([slot, items]) => (
               <div key={slot} className="mb-2">
@@ -379,21 +387,19 @@ export default function GunsPage() {
                   <ChevronRight className="w-2.5 h-2.5" />
                   {WEAPON_SLOT_LABELS[slot as WeaponSlot]}
                 </div>
-                {items!.map((a) => (
-                  <div key={a.id} className="flex items-center gap-1.5 py-0.5 pl-3 text-[11px] font-mono">
-                    <span className="text-text-primary">{a.name}</span>
+                {items!.map((a, idx) => (
+                  <div key={slot + idx} className="flex items-center gap-1.5 py-0.5 pl-3 text-[11px] font-mono">
+                    <span className="text-text-primary">{a.attachment_name}</span>
                     {a.brand && <span className="text-text-secondary/50">({a.brand})</span>}
-                    {a.purchase_url && (
-                      <a href={a.purchase_url} target="_blank" rel="noopener noreferrer" className="text-amber-500 hover:text-amber-400 ml-auto">
-                        <ExternalLink className="w-2.5 h-2.5" />
-                      </a>
-                    )}
+                    <span className="ml-auto text-[9px] font-mono text-amber-500/60">x{a.count}</span>
                   </div>
                 ))}
               </div>
             ))}
             {attachments.length === 0 && (
-              <div className="text-[10px] font-mono text-text-secondary/50">No attachments in catalog</div>
+              <div className="text-[10px] font-mono text-text-secondary/50">
+                No attachments observed on this weapon yet.
+              </div>
             )}
           </div>
         </aside>

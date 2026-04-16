@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { MediaCanvas } from "@/components/MediaCanvas";
 import { PersonPanel } from "@/components/PersonPanel";
-import { ArrowLeft, Tag, Users, MapPin, FileText, Save, Edit3 } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Tag, Users, MapPin, FileText, Save, Edit3, Trash2, X } from "lucide-react";
 import type { Media, Annotation, MediaPerson, Person, MediaTag, Coords } from "@/lib/types";
 
-const TAG_OPTIONS: MediaTag[] = ["Direct Action", "Recon", "Arrest"];
+const TAG_OPTIONS: MediaTag[] = ["Direct Action", "Recon", "Arrest", "Comp/Exercise", "Winter/Snow", "Patches", "Calendar", "Misc"];
 
 interface PersonDotData {
   id: string;
@@ -20,8 +20,20 @@ interface PersonDotData {
   callsign?: string | null;
 }
 
+const tagColors: Record<string, string> = {
+  "Direct Action": "bg-red-900/60 text-red-300 border-red-700",
+  Recon: "bg-emerald-900/60 text-emerald-300 border-emerald-700",
+  Arrest: "bg-amber-900/60 text-amber-300 border-amber-700",
+  "Comp/Exercise": "bg-violet-900/60 text-violet-300 border-violet-700",
+  "Winter/Snow": "bg-sky-900/60 text-sky-300 border-sky-700",
+  Patches: "bg-pink-900/60 text-pink-300 border-pink-700",
+  Calendar: "bg-teal-900/60 text-teal-300 border-teal-700",
+  Misc: "bg-zinc-800/60 text-zinc-300 border-zinc-700",
+};
+
 export default function MediaDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const mediaId = params.id as string;
 
   const [media, setMedia] = useState<Media | null>(null);
@@ -40,6 +52,9 @@ export default function MediaDetailPage() {
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesText, setNotesText] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [mediaIds, setMediaIds] = useState<string[]>([]);
 
   const loadData = useCallback(async () => {
     const [mediaRes, annRes, personsRes] = await Promise.all([
@@ -51,6 +66,16 @@ export default function MediaDetailPage() {
     if (mediaRes.data) setMedia(mediaRes.data as unknown as Media);
     if (annRes.data) setAnnotations(annRes.data as unknown as Annotation[]);
     if (personsRes.data) setAllPersons(personsRes.data as unknown as Person[]);
+
+    // Fetch ordered media ID list for prev/next navigation
+    const idsRes = await supabase
+      .from("media")
+      .select("id")
+      .order("created_at", { ascending: false })
+      .limit(2000);
+    if (idsRes.data) {
+      setMediaIds((idsRes.data as { id: string }[]).map((r) => r.id));
+    }
 
     const mpRes = await fetch("/api/media-persons?media_id=" + mediaId);
     if (mpRes.ok) {
@@ -76,6 +101,25 @@ export default function MediaDetailPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  const currentIdx = mediaIds.indexOf(mediaId);
+  const prevId = currentIdx > 0 ? mediaIds[currentIdx - 1] : null;
+  const nextId = currentIdx >= 0 && currentIdx < mediaIds.length - 1 ? mediaIds[currentIdx + 1] : null;
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Ignore if typing in an input/textarea
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (e.key === "ArrowLeft" && prevId) {
+        router.push("/media/" + prevId);
+      } else if (e.key === "ArrowRight" && nextId) {
+        router.push("/media/" + nextId);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [prevId, nextId, router]);
+
   const handleToggleTag = async (tag: MediaTag) => {
     if (!media) return;
     const current = media.tags || [];
@@ -88,6 +132,28 @@ export default function MediaDetailPage() {
       body: JSON.stringify({ media_id: mediaId, tags: newTags }),
     });
     if (res.ok) setMedia({ ...media, tags: newTags });
+  };
+
+  const handleRemoveTag = async (tag: string) => {
+    if (!media) return;
+    const newTags = (media.tags || []).filter((t: string) => t !== tag);
+    const res = await fetch("/api/media/tags", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_id: mediaId, tags: newTags }),
+    });
+    if (res.ok) setMedia({ ...media, tags: newTags });
+  };
+
+  const handleDeleteMedia = async () => {
+    setDeleting(true);
+    const res = await fetch("/api/media/delete?id=" + mediaId, { method: "DELETE" });
+    if (res.ok) {
+      router.push("/");
+    } else {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
   };
 
   const handleAddPerson = async () => {
@@ -196,12 +262,6 @@ export default function MediaDetailPage() {
     );
   }
 
-  const tagColors: Record<string, string> = {
-    "Direct Action": "bg-red-900/60 text-red-300 border-red-700",
-    "Recon": "bg-emerald-900/60 text-emerald-300 border-emerald-700",
-    "Arrest": "bg-amber-900/60 text-amber-300 border-amber-700",
-  };
-
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="border-b border-zinc-800 px-4 py-3 flex items-center gap-4">
@@ -209,24 +269,97 @@ export default function MediaDetailPage() {
           <ArrowLeft size={16} /> Back
         </Link>
         <span className="text-zinc-600">|</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => prevId && router.push("/media/" + prevId)}
+            disabled={!prevId}
+            className="p-1 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Previous image (←)"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <span className="text-xs font-mono text-zinc-500 min-w-[60px] text-center">
+            {currentIdx >= 0 ? `${currentIdx + 1} / ${mediaIds.length}` : ""}
+          </span>
+          <button
+            onClick={() => nextId && router.push("/media/" + nextId)}
+            disabled={!nextId}
+            className="p-1 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Next image (→)"
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
+        <span className="text-zinc-600">|</span>
         <span className="text-sm text-zinc-400">
           {media.type === "image" ? "Image" : "Video"} &mdash; {new Date(media.created_at).toLocaleDateString()}
         </span>
+
+        {/* Active tags with X to remove */}
+        {media.tags && media.tags.length > 0 && (
+          <div className="flex items-center gap-1 ml-2">
+            {media.tags.map((tag) => (
+              <span
+                key={tag}
+                className={"inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border " + (tagColors[tag] || "bg-zinc-800 text-zinc-400 border-zinc-700")}
+              >
+                {tag}
+                <button
+                  onClick={() => handleRemoveTag(tag)}
+                  className="hover:text-white ml-0.5"
+                  title="Remove tag"
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="ml-auto flex items-center gap-2">
           <Tag size={14} className="text-zinc-500" />
           {TAG_OPTIONS.map((tag) => {
             const active = (media.tags || []).includes(tag);
+            if (active) return null;
             return (
               <button
                 key={tag}
                 onClick={() => handleToggleTag(tag)}
-                className={"px-2 py-0.5 rounded text-xs font-medium border transition " +
-                  (active ? tagColors[tag] : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500")}
+                className="px-2 py-0.5 rounded text-xs font-medium border transition bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500"
               >
-                {tag}
+                + {tag}
               </button>
             );
           })}
+
+          <span className="text-zinc-700 mx-1">|</span>
+
+          {!showDeleteConfirm ? (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="text-zinc-600 hover:text-red-400 p-1 transition-colors"
+              title="Delete image"
+            >
+              <Trash2 size={16} />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-red-400">Delete this image?</span>
+              <button
+                onClick={handleDeleteMedia}
+                disabled={deleting}
+                className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-white text-xs rounded"
+              >
+                {deleting ? "Deleting..." : "Confirm"}
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-2 py-0.5 bg-zinc-700 text-zinc-300 text-xs rounded"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex h-[calc(100vh-53px)]">

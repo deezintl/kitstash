@@ -1,14 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useDropzone } from "react-dropzone";
 import { supabase } from "@/lib/supabase";
-import { CategoryBadge } from "@/components/CategoryBadge";
 import { SignatureModal } from "@/components/SignatureModal";
 import {
   Upload,
-  Plus,
   X,
   Loader2,
   CheckCircle,
@@ -19,7 +17,6 @@ import {
   FileText,
 } from "lucide-react";
 import clsx from "clsx";
-import type { Kit, Category } from "@/lib/types";
 
 type UploadStatus = "idle" | "uploading" | "processing" | "ready" | "error";
 
@@ -31,41 +28,156 @@ interface FileEntry {
   notes?: string;
 }
 
-const categories: Category[] = ["Recon", "Direct Action", "Arrest"];
-
 export default function UploadPage() {
   const router = useRouter();
-  const [kits, setKits] = useState<Kit[]>([]);
-  const [selectedKit, setSelectedKit] = useState<string>("");
   const [files, setFiles] = useState<FileEntry[]>([]);
-  const [showNewKit, setShowNewKit] = useState(false);
-  const [newKitName, setNewKitName] = useState("");
-  const [newKitCategory, setNewKitCategory] = useState<Category | "">("");
-  const [newKitDesc, setNewKitDesc] = useState("");
   const [signatureOpen, setSignatureOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [globalNotes, setGlobalNotes] = useState("");
+  const [txtDragOver, setTxtDragOver] = useState(false);
 
-  useEffect(() => {
-    async function loadKits() {
-      const { data } = await supabase.from("kits").select("*").order("name");
-      setKits(data || []);
+  // Extract date (YYYY-MM-DD HH:MM:SS) from filename patterns like
+  // "..._2021_02_09__12_07_28.jpg" -> "2021-02-09 12:07:28"
+  const extractDateFromFilename = (filename: string): string | null => {
+    const m = filename.match(/(\d{4})_(\d{2})_(\d{2})__(\d{2})_(\d{2})_(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`;
+    const m2 = filename.match(/(\d{4})_(\d{2})_(\d{2})/);
+    if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
+    return null;
+  };
+
+  // Separate .txt files from media files, matching captions to images by filename
+  const processDroppedFiles = useCallback(async (accepted: File[]) => {
+    const mediaFiles: File[] = [];
+    const captionMap = new Map<string, File>();
+    const unmatchedTxt: File[] = [];
+
+    for (const file of accepted) {
+      const name = file.name;
+      if (name.endsWith(".caption.txt")) {
+        const imageName = name.slice(0, -".caption.txt".length);
+        captionMap.set(imageName, file);
+      } else if (name.endsWith(".txt") || file.type === "text/plain") {
+        unmatchedTxt.push(file);
+      } else {
+        mediaFiles.push(file);
+      }
     }
-    loadKits();
-  }, []);
 
-  const onDrop = useCallback((accepted: File[]) => {
-    const entries: FileEntry[] = accepted.map((file) => ({ file, status: "idle", notes: "" }));
-    setFiles((prev) => [...prev, ...entries]);
+    const entries: FileEntry[] = [];
+    const usedCaptions = new Set<string>();
+    for (const file of mediaFiles) {
+      const caption = captionMap.get(file.name);
+      let notes = "";
+      const dateStr = extractDateFromFilename(file.name);
+      if (dateStr) notes = `Date: ${dateStr}`;
+      if (caption) {
+        usedCaptions.add(file.name);
+        const text = await caption.text();
+        notes = notes ? `${notes}\n\n${text.trim()}` : text.trim();
+      }
+      entries.push({ file, status: "idle", notes });
+    }
+
+    // Leftover captions (no matching image in this drop): try matching against
+    // files already in state, else append to global notes
+    const leftover: File[] = [];
+    for (const [imgName, capFile] of Array.from(captionMap.entries())) {
+      if (!usedCaptions.has(imgName)) leftover.push(capFile);
+    }
+
+    if (leftover.length > 0) {
+      const leftoverTexts: { name: string; text: string }[] = [];
+      for (const tf of leftover) {
+        leftoverTexts.push({ name: tf.name, text: await tf.text() });
+      }
+      setFiles((prev) => {
+        const updated = [...prev];
+        const stillUnmatched: { name: string; text: string }[] = [];
+        for (const lt of leftoverTexts) {
+          const imgName = lt.name.slice(0, -".caption.txt".length);
+          const idx = updated.findIndex((e) => e.file.name === imgName);
+          if (idx >= 0) {
+            const existing = updated[idx];
+            const combined = existing.notes
+              ? `${existing.notes}\n\n${lt.text.trim()}`
+              : lt.text.trim();
+            updated[idx] = { ...existing, notes: combined };
+          } else {
+            stillUnmatched.push(lt);
+          }
+        }
+        if (stillUnmatched.length > 0) {
+          const combined = stillUnmatched
+            .map((s) => `# ${s.name}\n${s.text}`)
+            .join("\n\n");
+          setGlobalNotes((prevNotes) =>
+            prevNotes.trim() ? prevNotes + "\n\n" + combined : combined
+          );
+        }
+        return updated;
+      });
+    }
+
+    if (unmatchedTxt.length > 0) {
+      const texts: string[] = [];
+      for (const tf of unmatchedTxt) {
+        texts.push(await tf.text());
+      }
+      const combined = texts.join("\n\n");
+      setGlobalNotes((prev) => (prev.trim() ? prev + "\n\n" + combined : combined));
+    }
+
+    if (entries.length > 0) {
+      setFiles((prev) => [...prev, ...entries]);
+    }
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
+    onDrop: processDroppedFiles,
     accept: {
       "image/*": [".jpg", ".jpeg", ".png", ".webp"],
       "video/*": [".mp4", ".mov", ".avi", ".webm"],
+      "text/plain": [".txt"],
     },
   });
+
+  // Notes-specific drop zone handler
+  const handleNotesDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setTxtDragOver(true);
+  }, []);
+
+  const handleNotesDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setTxtDragOver(false);
+  }, []);
+
+  const handleNotesDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setTxtDragOver(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    const txtFiles = droppedFiles.filter(
+      (f) => f.name.endsWith(".txt") || f.type === "text/plain"
+    );
+
+    if (txtFiles.length > 0) {
+      const texts: string[] = [];
+      for (const tf of txtFiles) {
+        const text = await tf.text();
+        texts.push(text);
+      }
+      const combined = texts.join("\n\n");
+      setGlobalNotes((prev) => {
+        if (!prev.trim()) return combined;
+        return prev + "\n\n" + combined;
+      });
+    }
+  }, []);
 
   const removeFile = (index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
@@ -86,36 +198,16 @@ export default function UploadPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     const text = await file.text();
-    setGlobalNotes(text);
+    setGlobalNotes((prev) => {
+      if (!prev.trim()) return text;
+      return prev + "\n\n" + text;
+    });
     e.target.value = "";
-  };
-
-  const handleCreateKit = async () => {
-    if (!newKitName.trim()) return;
-    const { data } = await supabase
-      .from("kits")
-      .insert({
-        name: newKitName.trim(),
-        category: newKitCategory || null,
-        description: newKitDesc.trim() || null,
-      })
-      .select()
-      .single();
-    if (data) {
-      setKits((prev) => [...prev, data]);
-      setSelectedKit(data.id);
-      setShowNewKit(false);
-      setNewKitName("");
-      setNewKitCategory("");
-      setNewKitDesc("");
-    }
   };
 
   const handleUpload = async (signatureName: string) => {
     setSignatureOpen(false);
     setIsUploading(true);
-
-    const kitId = selectedKit || null;
 
     for (let i = 0; i < files.length; i++) {
       const entry = files[i];
@@ -145,7 +237,6 @@ export default function UploadPage() {
         const { data: mediaData, error: mediaErr } = await supabase
           .from("media")
           .insert({
-            kit_id: kitId,
             type: isVideo ? "video" : "image",
             storage_url: storageUrl,
             notes: combinedNotes,
@@ -201,98 +292,67 @@ export default function UploadPage() {
     <div className="flex-1 p-6 max-w-3xl mx-auto w-full">
       <h1 className="text-lg font-medium text-text-primary mb-6">Upload Media</h1>
 
-      {/* Kit Selection */}
-      <div className="mb-6">
-        <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1.5">
-          Assign to Kit
-        </label>
-        <div className="flex gap-2">
-          <select
-            value={selectedKit}
-            onChange={(e) => setSelectedKit(e.target.value)}
-            className="flex-1 bg-bg border border-border px-3 py-2 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50"
-          >
-            <option value="">No Kit (unassigned)</option>
-            {kits.map((kit) => (
-              <option key={kit.id} value={kit.id}>
-                {kit.name} {kit.category ? `[${kit.category}]` : ""}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={() => setShowNewKit(!showNewKit)}
-            className="flex items-center gap-1 px-3 py-2 text-xs font-medium border border-border text-text-secondary rounded-sm hover:bg-white/5 transition-colors"
-          >
-            <Plus className="w-3 h-3" />
-            New Kit
-          </button>
-        </div>
-
-        {showNewKit && (
-          <div className="mt-2 p-3 bg-surface border border-border rounded-sm space-y-2">
-            <input
-              type="text"
-              value={newKitName}
-              onChange={(e) => setNewKitName(e.target.value)}
-              placeholder="Kit name"
-              className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50"
-            />
-            <div className="flex gap-2">
-              <select
-                value={newKitCategory}
-                onChange={(e) => setNewKitCategory(e.target.value as Category)}
-                className="flex-1 bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none"
-              >
-                <option value="">Category (optional)</option>
-                {categories.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-              <button
-                onClick={handleCreateKit}
-                disabled={!newKitName.trim()}
-                className="px-3 py-1.5 text-xs font-medium bg-accent text-bg rounded-sm hover:bg-accent/90 disabled:opacity-30"
-              >
-                Create
-              </button>
-            </div>
-            <input
-              type="text"
-              value={newKitDesc}
-              onChange={(e) => setNewKitDesc(e.target.value)}
-              placeholder="Description (optional)"
-              className="w-full bg-bg border border-border px-3 py-1.5 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50"
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Global Notes */}
+      {/* Global Notes — textarea + .txt drop zone side by side */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-1.5">
           <label className="text-[10px] font-mono text-text-secondary uppercase tracking-wider">
             Notes (applies to all uploaded images)
           </label>
-          <label className="flex items-center gap-1 text-[10px] font-mono text-accent cursor-pointer hover:underline">
-            <FileText className="w-3 h-3" />
-            Upload .txt
-            <input
-              type="file"
-              accept=".txt"
-              className="hidden"
-              onChange={handleGlobalTxtUpload}
-            />
-          </label>
+          {globalNotes && (
+            <button
+              onClick={() => setGlobalNotes("")}
+              className="text-[10px] font-mono text-text-secondary/50 hover:text-danger flex items-center gap-0.5"
+            >
+              <X className="w-2.5 h-2.5" /> Clear
+            </button>
+          )}
         </div>
-        <textarea
-          value={globalNotes}
-          onChange={(e) => setGlobalNotes(e.target.value)}
-          placeholder="Enter notes for all images in this upload batch... (source info, context, date, location, etc.)"
-          className="w-full bg-bg border border-border px-3 py-2 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50 h-24 resize-y"
-        />
+        <div className="flex gap-2">
+          <textarea
+            value={globalNotes}
+            onChange={(e) => setGlobalNotes(e.target.value)}
+            placeholder="Enter notes for all images in this upload batch... (source info, context, date, location, etc.)"
+            className="flex-1 bg-bg border border-border px-3 py-2 text-xs font-mono text-text-primary rounded-sm outline-none focus:border-accent/50 h-28 resize-y"
+          />
+          <div
+            onDragOver={handleNotesDragOver}
+            onDragLeave={handleNotesDragLeave}
+            onDrop={handleNotesDrop}
+            className={clsx(
+              "w-28 shrink-0 border-2 border-dashed rounded-sm flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-colors",
+              txtDragOver
+                ? "border-accent bg-accent/10"
+                : "border-border hover:border-accent/30"
+            )}
+            onClick={() => {
+              const inp = document.createElement("input");
+              inp.type = "file";
+              inp.accept = ".txt";
+              inp.multiple = true;
+              inp.onchange = async () => {
+                if (!inp.files) return;
+                const texts: string[] = [];
+                for (const f of Array.from(inp.files)) {
+                  texts.push(await f.text());
+                }
+                const combined = texts.join("\n\n");
+                setGlobalNotes((prev) => {
+                  if (!prev.trim()) return combined;
+                  return prev + "\n\n" + combined;
+                });
+              };
+              inp.click();
+            }}
+          >
+            <FileText className="w-5 h-5 text-text-secondary/40" />
+            <span className="text-[9px] font-mono text-text-secondary/60 text-center leading-tight px-1">
+              Drop .txt here
+            </span>
+          </div>
+        </div>
       </div>
 
-      {/* Dropzone */}
+      {/* Dropzone — accepts images, videos, AND .txt files */}
       <div
         {...getRootProps()}
         className={clsx(
@@ -305,10 +365,10 @@ export default function UploadPage() {
         <input {...getInputProps()} />
         <Upload className="w-8 h-8 text-text-secondary/40 mx-auto mb-3" />
         <p className="text-xs font-mono text-text-secondary mb-1">
-          {isDragActive ? "Drop files here" : "Drag & drop images or videos"}
+          {isDragActive ? "Drop files here" : "Drag & drop a folder of images + .caption.txt files"}
         </p>
         <p className="text-[10px] font-mono text-text-secondary/50">
-          JPG, PNG, WEBP, MP4, MOV, AVI, WEBM
+          Auto-matches <span className="text-accent/70">image.jpg</span> with <span className="text-accent/70">image.jpg.caption.txt</span> &mdash; parses date from filename
         </p>
       </div>
 

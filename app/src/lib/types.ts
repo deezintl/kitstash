@@ -209,7 +209,7 @@ export interface AuditEntry {
 export type Category = string;
 export type ProductionStatus = "production" | "discontinued";
 export type AnnotationStatus = "suggested" | "confirmed" | "rejected";
-export type MediaTag = "Direct Action" | "Recon" | "Arrest";
+export type MediaTag = "Direct Action" | "Recon" | "Arrest" | "Comp/Exercise" | "Winter/Snow" | "Patches" | "Calendar" | "Misc";
 
 export const GEAR_CATEGORIES = [
   "Helmets",
