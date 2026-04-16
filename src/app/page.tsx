@@ -35,9 +35,10 @@ const TAG_COLORS: Record<string, string> = {
   "Direct Action": "bg-red-900/70 text-red-300 border-red-800",
   "Recon": "bg-emerald-900/70 text-emerald-300 border-emerald-800",
   "Arrest": "bg-amber-900/70 text-amber-300 border-amber-800",
+  "Comp/Exercise": "bg-violet-900/70 text-violet-300 border-violet-800",
 };
 
-const ALL_TAGS: MediaTag[] = ["Direct Action", "Recon", "Arrest"];
+const ALL_TAGS: MediaTag[] = ["Direct Action", "Recon", "Arrest", "Comp/Exercise"];
 
 const WEAPON_TYPE_LABELS: Record<string, string> = {
   rifle: "Rifle",
@@ -554,11 +555,4 @@ export default function DashboardPage() {
                     </div>
                   </Link>
                 ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+     

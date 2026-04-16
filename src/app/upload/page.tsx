@@ -31,7 +31,7 @@ interface FileEntry {
   notes?: string;
 }
 
-const categories: Category[] = ["Recon", "Direct Action", "Arrest"];
+const categories: Category[] = ["Recon", "Direct Action", "Arrest", "Comp/Exercise"];
 
 export default function UploadPage() {
   const router = useRouter();
